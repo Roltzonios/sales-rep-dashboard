@@ -1,230 +1,366 @@
 'use client';
 
-import { useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { RepPerformance, SalesRep, DEFAULT_SALES_REPS, DEFAULT_PERFORMANCE_DATA } from '../types/data';
-import { isValidNumber } from '../lib/utils';
+import React, { useState, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import DashboardLayout from '../components/dashboard-layout';
+import { 
+  WeeklyMetrics, 
+  SalesRep, 
+  DEFAULT_SALES_REPS, 
+  DEFAULT_WEEKLY_DATA,
+  DASHBOARD_CONFIGS,
+  METRIC_LABELS
+} from '../types/data';
+
+// ShadCN Components
+import { Button } from "../../@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../@/components/ui/card";
+import { Input } from "../../@/components/ui/input";
+import { Label } from "../../@/components/ui/label";
+import { Badge } from "../../@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../@/components/ui/tabs";
+import { Checkbox } from "../../@/components/ui/checkbox";
+
+// Icons
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function Dashboard() {
   const [salesReps, setSalesReps] = useState<SalesRep[]>(DEFAULT_SALES_REPS);
-  const [performanceData, setPerformanceData] = useState<RepPerformance[]>(DEFAULT_PERFORMANCE_DATA);
-  const [visibleReps, setVisibleReps] = useState<{ [key: string]: boolean }>(() => {
-    const initial: { [key: string]: boolean } = {};
-    DEFAULT_SALES_REPS.forEach(rep => {
-      initial[rep.name] = true;
-    });
-    return initial;
+  const [weeklyData, setWeeklyData] = useState<WeeklyMetrics[]>(DEFAULT_WEEKLY_DATA);
+  const [repVisibility, setRepVisibility] = useState<{ [key: string]: boolean }>(() => {
+    return DEFAULT_SALES_REPS.reduce((acc, rep) => {
+      acc[rep.name] = true;
+      return acc;
+    }, {} as { [key: string]: boolean });
   });
+  
+  // Timeline state - most recent week is selected by default
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState<number>(weeklyData.length - 1);
+  const [showTimeline, setShowTimeline] = useState<boolean>(false);
+  
+  // Dashboard navigation state
+  const [selectedDashboard, setSelectedDashboard] = useState<string>(DASHBOARD_CONFIGS[0].id);
+
+  // Get the current/selected week data for editing
+  const currentWeek = weeklyData[selectedWeekIndex];
+  const isCurrentWeek = selectedWeekIndex === weeklyData.length - 1;
+  const currentDashboardConfig = DASHBOARD_CONFIGS.find(config => config.id === selectedDashboard)!;
+
+  // Transform data for charts
+  const chartData = useMemo(() => {
+    return weeklyData.map(week => {
+      const weekData: any = { week: week.weekPeriod };
+      
+      salesReps.forEach(rep => {
+        Object.keys(METRIC_LABELS).forEach(metric => {
+          const key = `${rep.name}-${metric}`;
+          weekData[`${rep.name}-${metric}`] = week[key] || 0;
+        });
+      });
+      
+      return weekData;
+    });
+  }, [weeklyData, salesReps]);
 
   const handleRepNameChange = (index: number, newName: string) => {
     const oldName = salesReps[index].name;
-    const updatedReps = [...salesReps];
-    updatedReps[index].name = newName;
-    setSalesReps(updatedReps);
-
-    // Update performance data with new rep name
-    const updatedData = performanceData.map(dataPoint => {
-      const newDataPoint = { ...dataPoint };
-      if (oldName in newDataPoint) {
-        newDataPoint[newName] = newDataPoint[oldName];
-        delete newDataPoint[oldName];
-      }
-      return newDataPoint;
+    
+    // Update sales reps
+    const newSalesReps = [...salesReps];
+    newSalesReps[index] = { ...newSalesReps[index], name: newName };
+    setSalesReps(newSalesReps);
+    
+    // Update visibility mapping
+    const newVisibility = { ...repVisibility };
+    delete newVisibility[oldName];
+    newVisibility[newName] = repVisibility[oldName] ?? true;
+    setRepVisibility(newVisibility);
+    
+    // Update weekly data keys
+    const newWeeklyData = weeklyData.map(week => {
+      const newWeek = { ...week };
+      Object.keys(METRIC_LABELS).forEach(metric => {
+        const oldKey = `${oldName}-${metric}`;
+        const newKey = `${newName}-${metric}`;
+        if (newWeek[oldKey] !== undefined) {
+          newWeek[newKey] = newWeek[oldKey];
+          delete newWeek[oldKey];
+        }
+      });
+      return newWeek;
     });
-    setPerformanceData(updatedData);
-
-    // Update visibility tracking
-    const updatedVisibility = { ...visibleReps };
-    if (oldName in updatedVisibility) {
-      updatedVisibility[newName] = updatedVisibility[oldName];
-      delete updatedVisibility[oldName];
-    }
-    setVisibleReps(updatedVisibility);
+    setWeeklyData(newWeeklyData);
   };
 
-  const handlePerformanceChange = (dateIndex: number, repName: string, value: string) => {
-    if (isValidNumber(value)) {
-      const updatedData = [...performanceData];
-      updatedData[dateIndex][repName] = Number(value);
-      setPerformanceData(updatedData);
-    }
+  const handleDataChange = (repName: string, metric: string, value: string) => {
+    const numValue = parseFloat(value) || 0;
+    const key = `${repName}-${metric}`;
+    
+    const newWeeklyData = [...weeklyData];
+    newWeeklyData[selectedWeekIndex] = {
+      ...newWeeklyData[selectedWeekIndex],
+      [key]: numValue
+    };
+    setWeeklyData(newWeeklyData);
   };
 
-  const handleVisibilityToggle = (repName: string) => {
-    setVisibleReps(prev => ({
+  const toggleRepVisibility = (repName: string) => {
+    setRepVisibility(prev => ({
       ...prev,
       [repName]: !prev[repName]
     }));
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric' 
-    });
+  const getCategoryColor = (category: string) => {
+    const colors = {
+      'Activity': 'border-blue-200 bg-blue-50',
+      'Engagement': 'border-green-200 bg-green-50', 
+      'Conversion': 'border-emerald-200 bg-emerald-50',
+      'Efficiency': 'border-purple-200 bg-purple-50'
+    };
+    return colors[category as keyof typeof colors] || 'border-gray-200 bg-gray-50';
   };
 
-  return (
-    <main className="min-h-screen p-8 bg-gray-50">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h1 className="text-3xl font-bold mb-6">Sales Rep Performance Dashboard</h1>
-          
-          {/* Sales Rep Configuration */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4">Sales Representatives</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  const getCategoryTextColor = (category: string) => {
+    const colors = {
+      'Activity': 'text-blue-800',
+      'Engagement': 'text-green-800',
+      'Conversion': 'text-emerald-800', 
+      'Efficiency': 'text-purple-800'
+    };
+    return colors[category as keyof typeof colors] || 'text-gray-800';
+  };
+
+  const renderCurrentDashboard = () => {
+    const metric = currentDashboardConfig.metric;
+    const categoryColor = getCategoryColor(currentDashboardConfig.category);
+    const categoryTextColor = getCategoryTextColor(currentDashboardConfig.category);
+
+    return (
+      <div className="space-y-6">
+        <Card className={`${categoryColor} border-2`}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className={`text-2xl ${categoryTextColor}`}>
+                  {currentDashboardConfig.title}
+                </CardTitle>
+                <CardDescription className="text-lg">
+                  {currentDashboardConfig.description}
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className={`${categoryTextColor} border-current`}>
+                {currentDashboardConfig.category}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-96">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="week" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  {salesReps.map(rep => 
+                    repVisibility[rep.name] && (
+                      <Line
+                        key={rep.name}
+                        type="monotone"
+                        dataKey={`${rep.name}-${metric}`}
+                        stroke={rep.color}
+                        strokeWidth={2}
+                        dot={{ fill: rep.color, strokeWidth: 2, r: 4 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    )
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sales Rep Controls */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales Representatives</CardTitle>
+            <CardDescription>Manage visibility and edit names</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {salesReps.map((rep, index) => (
-                <div key={index} className="flex items-center space-x-3 p-3 border rounded-lg">
+                <div key={rep.name} className="flex items-center space-x-3 p-3 border rounded-lg">
+                  <Checkbox
+                    checked={repVisibility[rep.name]}
+                    onCheckedChange={() => toggleRepVisibility(rep.name)}
+                  />
                   <div 
                     className="w-4 h-4 rounded-full"
                     style={{ backgroundColor: rep.color }}
-                  ></div>
-                  <input
-                    type="text"
+                  />
+                  <Input
                     value={rep.name}
                     onChange={(e) => handleRepNameChange(index, e.target.value)}
-                    className="flex-1 p-2 border rounded text-sm"
-                    placeholder="Rep Name"
+                    className="flex-1"
                   />
                 </div>
               ))}
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Performance Data Table */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4">Lead Performance Over Time</h2>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="p-3 text-left border">Date</th>
-                    {salesReps.map((rep, index) => (
-                      <th key={index} className="p-3 text-left border">
+        {/* Week Timeline */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Week Selection</CardTitle>
+                <CardDescription>
+                  {isCurrentWeek ? 'Current Week (Editable)' : 'Historical Data'}
+                  {!isCurrentWeek && (
+                    <Badge variant="outline" className="ml-2 text-orange-600 border-orange-300">
+                      Historical
+                    </Badge>
+                  )}
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setShowTimeline(!showTimeline)}
+              >
+                {showTimeline ? 'Hide Timeline' : 'Show Timeline'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between mb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedWeekIndex(Math.max(0, selectedWeekIndex - 1))}
+                disabled={selectedWeekIndex === 0}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              
+              <div className="text-center">
+                <div className="font-medium">{currentWeek.weekPeriod}</div>
+                <div className="text-sm text-muted-foreground">
+                  Week {selectedWeekIndex + 1} of {weeklyData.length}
+                </div>
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedWeekIndex(Math.min(weeklyData.length - 1, selectedWeekIndex + 1))}
+                disabled={selectedWeekIndex === weeklyData.length - 1}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {showTimeline && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+                {weeklyData.map((week, index) => (
+                  <Button
+                    key={week.weekPeriod}
+                    variant={index === selectedWeekIndex ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedWeekIndex(index)}
+                    className="text-xs"
+                  >
+                    {week.weekPeriod}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Data Entry Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Data Entry - {currentWeek.weekPeriod}</CardTitle>
+            <CardDescription>
+              {METRIC_LABELS[metric as keyof typeof METRIC_LABELS]}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Sales Rep</TableHead>
+                  <TableHead>{METRIC_LABELS[metric as keyof typeof METRIC_LABELS]}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {salesReps.map(rep => {
+                  const key = `${rep.name}-${metric}`;
+                  const currentValue = currentWeek[key] || 0;
+                  return (
+                    <TableRow key={rep.name}>
+                      <TableCell className="font-medium">
                         <div className="flex items-center space-x-2">
                           <div 
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: rep.color }}
-                          ></div>
+                          />
                           <span>{rep.name}</span>
                         </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {performanceData.map((dataPoint, dateIndex) => (
-                    <tr key={dateIndex} className="border-b">
-                      <td className="p-3 border font-medium">
-                        {formatDate(dataPoint.date)}
-                      </td>
-                      {salesReps.map((rep, repIndex) => (
-                        <td key={repIndex} className="p-3 border">
-                          <input
-                            type="number"
-                            value={dataPoint[rep.name] || 0}
-                            onChange={(e) => handlePerformanceChange(dateIndex, rep.name, e.target.value)}
-                            className="w-full p-2 border rounded text-center"
-                            min="0"
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          value={currentValue}
+                          onChange={(e) => handleDataChange(rep.name, metric, e.target.value)}
+                          className="w-24"
+                          step="0.1"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
 
-          {/* Chart with Visibility Controls */}
-          <div className="w-full">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Performance Trends</h2>
-              
-              {/* Visibility Controls */}
-              <div className="flex flex-wrap gap-4 items-center">
-                <span className="text-sm font-medium text-gray-700">Show Lines:</span>
-                {salesReps.map((rep, index) => (
-                  <label key={index} className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={visibleReps[rep.name] || false}
-                      onChange={() => handleVisibilityToggle(rep.name)}
-                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                    />
-                    <div className="flex items-center space-x-1">
-                      <div 
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: rep.color }}
-                      ></div>
-                      <span className="text-sm font-medium">{rep.name}</span>
-                    </div>
-                  </label>
+  return (
+    <DashboardLayout>
+      <div className="min-h-screen bg-gray-50">
+        <div className="p-6">
+          <div className="max-w-7xl mx-auto">
+            {/* Dashboard Navigation */}
+            <div className="mb-6">
+              <h1 className="text-3xl font-bold text-gray-900 mb-4">Sales Performance Dashboard</h1>
+              <Tabs value={selectedDashboard} onValueChange={setSelectedDashboard}>
+                                 <TabsList className="grid grid-cols-4 lg:grid-cols-8 mb-6">
+                   {DASHBOARD_CONFIGS.map(config => (
+                     <TabsTrigger key={config.id} value={config.id} className="text-xs">
+                       {config.title}
+                     </TabsTrigger>
+                   ))}
+                </TabsList>
+                
+                {DASHBOARD_CONFIGS.map(config => (
+                  <TabsContent key={config.id} value={config.id}>
+                    {renderCurrentDashboard()}
+                  </TabsContent>
                 ))}
-              </div>
+              </Tabs>
             </div>
-            
-            <div className="overflow-x-auto">
-              <LineChart width={1000} height={500} data={performanceData} className="mx-auto">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="date" 
-                  tickFormatter={formatDate}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis label={{ value: 'Lead Count', angle: -90, position: 'insideLeft' }} />
-                <Tooltip 
-                  labelFormatter={(value) => `Date: ${formatDate(value as string)}`}
-                  formatter={(value, name) => [value, `${name} Leads`]}
-                />
-                <Legend />
-                {salesReps.map((rep, index) => (
-                  visibleReps[rep.name] && (
-                    <Line
-                      key={index}
-                      type="monotone"
-                      dataKey={rep.name}
-                      stroke={rep.color}
-                      strokeWidth={3}
-                      dot={{ r: 5 }}
-                      activeDot={{ r: 7 }}
-                    />
-                  )
-                ))}
-              </LineChart>
-            </div>
-          </div>
-
-          {/* Summary Stats */}
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {salesReps.map((rep, index) => {
-              const totalLeads = performanceData.reduce((sum, dataPoint) => 
-                sum + (Number(dataPoint[rep.name]) || 0), 0
-              );
-              const avgLeads = Math.round(totalLeads / performanceData.length);
-              
-              return (
-                <div key={index} className="bg-gray-50 p-4 rounded-lg">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <div 
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: rep.color }}
-                    ></div>
-                    <h3 className="font-semibold">{rep.name}</h3>
-                  </div>
-                  <p className="text-2xl font-bold text-gray-800">{totalLeads}</p>
-                  <p className="text-sm text-gray-600">Total Leads</p>
-                  <p className="text-lg font-semibold text-gray-700">{avgLeads}</p>
-                  <p className="text-sm text-gray-600">Avg per Period</p>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
-    </main>
+    </DashboardLayout>
   );
 } 
