@@ -1,5 +1,91 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
+import { formatDataForGeminiContext } from '../../../lib/data-store';
+
+// Sample data structure - this should match your actual data structure
+const currentSalesData = {
+  weekEnding: "2024-03-22",
+  reps: [
+    {
+      name: "JP",
+      metrics: {
+        hoursWorked: 40,
+        callLogs: 180,
+        accountsTouched: 120,
+        spokeWith: 45,
+        leads: 15,
+        leadsVsAccountsTouchedPercent: "12.5%",
+        spokeWithVsLeadsSentPercent: "33.3%",
+        callsPerHour: 4.5
+      }
+    },
+    {
+      name: "Kayla",
+      metrics: {
+        hoursWorked: 38,
+        callLogs: 165,
+        accountsTouched: 110,
+        spokeWith: 42,
+        leads: 14,
+        leadsVsAccountsTouchedPercent: "12.7%",
+        spokeWithVsLeadsSentPercent: "33.3%",
+        callsPerHour: 4.3
+      }
+    },
+    {
+      name: "Ken",
+      metrics: {
+        hoursWorked: 42,
+        callLogs: 190,
+        accountsTouched: 130,
+        spokeWith: 48,
+        leads: 16,
+        leadsVsAccountsTouchedPercent: "12.3%",
+        spokeWithVsLeadsSentPercent: "33.3%",
+        callsPerHour: 4.5
+      }
+    },
+    {
+      name: "Paul",
+      metrics: {
+        hoursWorked: 39,
+        callLogs: 175,
+        accountsTouched: 115,
+        spokeWith: 43,
+        leads: 15,
+        leadsVsAccountsTouchedPercent: "13.0%",
+        spokeWithVsLeadsSentPercent: "34.9%",
+        callsPerHour: 4.5
+      }
+    },
+    {
+      name: "Margo",
+      metrics: {
+        hoursWorked: 41,
+        callLogs: 185,
+        accountsTouched: 125,
+        spokeWith: 46,
+        leads: 15,
+        leadsVsAccountsTouchedPercent: "12.0%",
+        spokeWithVsLeadsSentPercent: "32.6%",
+        callsPerHour: 4.5
+      }
+    },
+    {
+      name: "Brian",
+      metrics: {
+        hoursWorked: 40,
+        callLogs: 180,
+        accountsTouched: 120,
+        spokeWith: 45,
+        leads: 15,
+        leadsVsAccountsTouchedPercent: "12.5%",
+        spokeWithVsLeadsSentPercent: "33.3%",
+        callsPerHour: 4.5
+      }
+    }
+  ]
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,26 +118,34 @@ export async function POST(request: NextRequest) {
     // Get the generative model - using the correct model name
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    // Create a context-aware prompt that includes sales dashboard context
-    const systemPrompt = `You are an AI assistant for a sales performance dashboard. You help sales managers and representatives analyze their data, provide insights, and answer questions about sales metrics including:
+    // Get formatted historical data for context
+    const historicalDataContext = formatDataForGeminiContext();
 
-- Number of Hours worked
-- Call Logs and activity
-- Accounts Touched
-- Spoke With (conversations)
-- Number of Leads generated
-- Conversion rates (Leads vs Accounts Touched %)
-- Efficiency metrics (Spoke With vs Leads Sent %, Calls per Hour)
+    // Create a context-aware prompt that includes sales dashboard context and historical data
+    const systemPrompt = `You are an AI assistant for a sales performance dashboard. 
 
-You can help with:
-- Data analysis and interpretation
-- Performance insights and recommendations
-- Trend identification
-- Goal setting and tracking
-- Best practices for sales improvement
-- Comparative analysis between team members
+Your sole purpose is to help the user upload data within their dashboard and understand any information within the dashboard and the database which you are connected to. 
 
-Provide helpful, actionable insights in a professional yet conversational tone. Be specific when possible and offer concrete suggestions for improvement.`;
+Here is the complete historical sales data, with the most recent week first:
+
+${historicalDataContext}
+
+If you are prompted to upload new data, you will be asking the user to upload the data either in a file attachment or just being able to paste it in the chat in a structured format. Upon them pasting this information in a structured format, you will then use the data to update the dashboard based on the values that are provided. 
+
+When analyzing trends or performance:
+- Compare data across weeks to identify patterns
+- Highlight significant changes or improvements
+- Consider both individual and team performance
+- Look at efficiency metrics over time
+- Note any correlations between different metrics
+
+If you are prompted to understand the data, you will specify anything or explain the data in a way that is easy to understand. 
+If you are prompted to understand the dashboard, you will use the most recent data unless otherwise specified. 
+
+Do not use any bold text in your response. 
+Do not use any emojis in your response. 
+Do not use any markdown in your response. 
+Do not use any code in your response.`;
 
     // Build conversation context
     let conversationContext = systemPrompt + '\n\n';
